@@ -93,6 +93,16 @@
   .modal-input{ width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); font-size:15px; margin-bottom:12px; font-family:var(--sans); }
   .modal-note{ font-size:12.5px; color:var(--ink-soft); margin-top:14px; line-height:1.5; }
   .modal-close{ display:block; margin:16px auto 0; background:none; border:none; color:var(--ink-soft); font-size:12.5px; cursor:pointer; text-decoration:underline; }
+
+  .app-footer{ max-width:520px; margin:28px auto 0; padding:16px 4px 0; border-top:1px dashed var(--line); text-align:center; }
+  .footer-credit{ margin:0 0 4px; font-size:12px; font-weight:600; color:var(--ink-soft); }
+  .footer-credit a{ color:var(--teal-deep); text-decoration:none; }
+  .footer-credit a:hover{ text-decoration:underline; }
+  .footer-phone{ margin:0 0 10px; font-size:11px; color:var(--ink-soft); opacity:0.85; }
+  .footer-links{ display:flex; flex-wrap:wrap; justify-content:center; gap:6px 14px; }
+  .footer-links a{ font-size:12px; color:var(--teal-deep); text-decoration:none; }
+  .footer-links a:hover{ text-decoration:underline; }
+  .footer-current{ font-size:12px; color:var(--ink-soft); font-weight:700; }
 </style>
 </head>
 <body>
@@ -122,6 +132,20 @@
   </div>
 
 </div>
+
+<footer class="app-footer">
+  <p class="footer-credit">Build by Yours Truly - 小猫好介绍 - <a href="https://www.facebook.com/share/1EsHK8JzEM/" target="_blank" rel="noopener">Good Lobang must share</a></p>
+  <p class="footer-phone">+65 88877041</p>
+  <nav class="footer-links">
+    <a href="https://document-tools.up.railway.app/" target="_blank" rel="noopener">Document Tools</a>
+    <a href="https://sg-money-cpf-hdb-calculator-production.up.railway.app/" target="_blank" rel="noopener">SG Money</a>
+    <a href="https://bto-planning-tool.web.app/" target="_blank" rel="noopener">BTO Planning Tool</a>
+    <a href="https://expiry-tracker-201069.web.app/" target="_blank" rel="noopener">Expiry Tracker</a>
+    <a href="https://protein-tracker-for-50s.web.app/protein-tracker" target="_blank" rel="noopener">Protein Tracker</a>
+    <a href="https://waypoint-production-0307.up.railway.app/" target="_blank" rel="noopener">Waypoint</a>
+    <span class="footer-current">Appointment Reminder</span>
+  </nav>
+</footer>
 
 <div class="overlay" id="overlay" style="display:none;">
   <div class="modal" id="modalContent"></div>
