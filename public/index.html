@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Appointment Check-in</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    --board-bg: #10161a;
+    --board-bg-2: #161e23;
+    --board-amber: #f5c451;
+    --board-amber-dim: #6b5a2c;
+    --board-green: #6fcf97;
+    --paper: #f7f5f0;
+    --ink: #1b2a3c;
+    --ink-soft: #4a5a6b;
+    --teal: #2f7a6b;
+    --teal-deep: #1f5a4f;
+    --coral: #d9634a;
+    --line: #e4dfd3;
+    --card: #ffffff;
+    --serif: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+    --mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{ margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); -webkit-font-smoothing:antialiased; padding:20px 16px 60px; }
+  .app{max-width:520px; margin:0 auto;}
+
+  .board{ background: linear-gradient(180deg, var(--board-bg-2), var(--board-bg)); border-radius:10px; padding:22px 20px 20px; color:var(--board-amber); box-shadow: 0 8px 24px rgba(16,22,26,0.35), inset 0 0 0 1px rgba(245,196,81,0.08); position:relative; overflow:hidden; }
+  .board::after{ content:""; position:absolute; inset:0; background: repeating-linear-gradient(180deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 3px); pointer-events:none; }
+  .board-eyebrow{ font-family:var(--mono); font-size:11px; letter-spacing:3px; color:var(--board-amber-dim); text-transform:uppercase; margin-bottom:6px; }
+  .board-gate{ font-family:var(--mono); font-size:14px; letter-spacing:1px; color:var(--board-amber); display:flex; justify-content:space-between; margin-bottom:14px; opacity:0.85; }
+  .board-status{ font-family:var(--serif); font-size:19px; line-height:1.3; margin:0 0 16px; color:#fbe4a8; }
+  .board-countdown-row{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; border-top:1px dashed rgba(245,196,81,0.25); padding-top:14px; }
+  .board-countdown-label{ font-family:var(--mono); font-size:11px; letter-spacing:2px; color:var(--board-amber-dim); }
+  .board-countdown{ font-family:var(--mono); font-size:28px; letter-spacing:2px; font-variant-numeric: tabular-nums; color:var(--board-amber); }
+  .board-done{ color:var(--board-green); }
+
+  .banner{ margin-top:14px; padding:10px 14px; background:#fff; border:1px solid var(--line); border-radius:8px; font-size:12.5px; color:var(--ink-soft); line-height:1.5; }
+
+  .section-title{ font-family:var(--mono); font-size:11px; letter-spacing:2px; color:var(--ink-soft); text-transform:uppercase; margin:22px 2px 10px; display:flex; justify-content:space-between; align-items:center; }
+
+  .btn-add{ font-size:13px; padding:9px 14px; border-radius:8px; border:1.5px solid var(--teal); background:#fff; color:var(--teal-deep); font-weight:600; cursor:pointer; }
+  .btn-add:hover{ background: rgba(47,122,107,0.06); }
+
+  .empty-state{ background:var(--card); border:1px dashed var(--line); border-radius:10px; padding:26px 18px; text-align:center; color:var(--ink-soft); font-size:13.5px; }
+
+  .appt-card{ background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:12px; overflow:hidden; }
+  .appt-card-header{ padding:16px 16px; cursor:pointer; display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+  .appt-card-title{ font-family:var(--serif); font-size:17px; }
+  .appt-card-meta{ font-size:12.5px; color:var(--ink-soft); margin-top:4px; }
+  .appt-card-next{ font-size:12px; color:var(--teal-deep); margin-top:6px; font-weight:600; }
+  .appt-card-chevron{ font-size:13px; color:var(--ink-soft); flex:none; padding-top:3px; }
+  .appt-card-body{ display:none; border-top:1px solid var(--line); padding:14px 16px 16px; }
+  .appt-card-body.open{ display:block; }
+  .appt-card-actions{ display:flex; gap:8px; margin-top:12px; }
+
+  .tl-item{ display:flex; gap:12px; padding:10px 2px; border-bottom:1px solid var(--line); }
+  .tl-item:last-child{ border-bottom:none; }
+  .tl-dot{ width:22px; height:22px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; margin-top:1px; }
+  .dot-pending{ background:#eee; color:#999; }
+  .dot-yes{ background:var(--teal); color:#fff; }
+  .dot-no{ background:var(--coral); color:#fff; }
+  .dot-skip{ background:#ddd; color:#888; }
+  .dot-final{ background:var(--ink); color:#fff; }
+  .tl-body{ flex:1; }
+  .tl-label{ font-size:14px; font-weight:600; }
+  .tl-sub{ font-size:12px; color:var(--ink-soft); margin-top:2px; }
+
+  .preview-buttons{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .btn-ghost{ font-size:12.5px; padding:7px 11px; border-radius:7px; border:1px solid var(--line); background:#fff; color:var(--ink-soft); cursor:pointer; }
+  .btn-ghost:hover{ border-color:var(--ink-soft); }
+  .link-danger{ font-size:12.5px; color:var(--coral); background:none; border:none; cursor:pointer; padding:7px 4px; text-decoration:underline; }
+
+  .history-block{ margin-top:22px; }
+  .history-item{ font-size:12px; color:var(--ink-soft); padding:6px 2px; border-bottom:1px solid var(--line); }
+  .history-item:last-child{ border-bottom:none; }
+
+  .overlay{ position:fixed; inset:0; background:rgba(16,22,26,0.55); display:flex; align-items:flex-end; justify-content:center; z-index:50; }
+  @media (min-width:560px){ .overlay{ align-items:center; padding:20px; } }
+  .modal{ background:var(--card); width:100%; max-width:460px; border-radius:16px 16px 0 0; padding:26px 22px 24px; box-shadow:0 -10px 40px rgba(0,0,0,0.25); }
+  @media (min-width:560px){ .modal{ border-radius:16px; } }
+  .modal-eyebrow{ font-family:var(--mono); font-size:11px; letter-spacing:2px; color:var(--teal-deep); text-transform:uppercase; margin-bottom:8px;}
+  .modal-q{ font-family:var(--serif); font-size:20px; line-height:1.35; margin:0 0 18px; }
+  .modal-row{ display:flex; gap:10px; }
+  .btn{ flex:1; padding:13px 10px; border-radius:9px; border:none; font-size:15px; font-weight:600; cursor:pointer; }
+  .btn-yes{ background:var(--teal); color:#fff; }
+  .btn-no{ background:#fff; color:var(--coral); border:1.5px solid var(--coral); }
+  .btn-primary{ background:var(--ink); color:#fff; }
+  .btn:active{ transform:scale(0.98); }
+  .modal-input{ width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); font-size:15px; margin-bottom:12px; font-family:var(--sans); }
+  .modal-note{ font-size:12.5px; color:var(--ink-soft); margin-top:14px; line-height:1.5; }
+  .modal-close{ display:block; margin:16px auto 0; background:none; border:none; color:var(--ink-soft); font-size:12.5px; cursor:pointer; text-decoration:underline; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="board" id="board">
+    <div class="board-eyebrow">Appointment Check-in Board</div>
+    <div class="board-gate" id="boardGate"><span>—</span><span>—</span></div>
+    <div class="board-status" id="boardStatus">Loading…</div>
+    <div class="board-countdown-row">
+      <div class="board-countdown-label" id="countdownLabel">NEXT CHECK-IN</div>
+      <div class="board-countdown" id="countdown">--:--:--</div>
+    </div>
+  </div>
+
+  <div class="banner">This board only checks the time while it's open on your screen. Your phone will also get a calendar alert at each check-in time — open this board then to answer it. Everything is saved on this device.</div>
+
+  <div class="section-title">
+    <span>Your appointments</span>
+    <button class="btn-add" id="addApptBtn">+ Add appointment</button>
+  </div>
+  <div id="apptList"></div>
+
+  <div class="history-block" id="historyBlock" style="display:none;">
+    <div class="section-title"><span>History</span></div>
+    <div id="historyList"></div>
+  </div>
+
+</div>
+
+<div class="overlay" id="overlay" style="display:none;">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<script>
+const STORAGE_KEY = 'appt_checkin_v2';
+
+let store = null; // { appointments: [...], history: [...] }
+let modalOpen = false;
+let notified = {}; // key: `${apptId}:${checkpointId}`
+let openCardId = null; // which appointment card is currently expanded
+
+// ---------- Storage + migration ----------
+
+function newCheckpoints(){
+  return [
+    { id: "day_before", label: "Appointment confirmed?", time: null, answered: false, response: null, skipped: false },
+    { id: "day_of_9am", label: "Confirm you're going today", time: null, answered: false, response: null, skipped: false },
+    { id: "on_the_way", label: "On your way?", time: null, answered: false, response: null, skipped: false }
+  ];
+}
+
+function newId(){
+  return 'appt_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+}
+
+function loadStore(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(parsed && Array.isArray(parsed.appointments)){
+        store = parsed;
+        return;
+      }
+      // Old single-appointment shape — migrate it in rather than lose it.
+      if(parsed && parsed.apptDateTime){
+        store = {
+          appointments: parsed.status === 'no_appointment' ? [] : [{
+            id: newId(),
+            doctor: parsed.doctor || '',
+            location: parsed.location || '',
+            apptDateTime: parsed.apptDateTime,
+            status: 'scheduled',
+            checkpoints: parsed.checkpoints || newCheckpoints()
+          }],
+          history: parsed.history || []
+        };
+        saveStore();
+        return;
+      }
+    }
+  }catch(e){}
+  store = { appointments: [], history: [] };
+  saveStore();
+}
+
+function saveStore(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }catch(e){}
+}
+
+function findAppt(id){ return store.appointments.find(a => a.id === id); }
+
+// ---------- Formatting ----------
+
+function fmtDateTime(iso){ return new Date(iso).toLocaleString('en-SG', { weekday:'short', day:'2-digit', month:'short', hour:'numeric', minute:'2-digit', hour12:true }); }
+function fmtTime(iso){ return new Date(iso).toLocaleString('en-SG', { hour:'numeric', minute:'2-digit', hour12:true }); }
+function fmtDate(iso){ return new Date(iso).toLocaleDateString('en-SG', { day:'2-digit', month:'short', year:'numeric' }); }
+function nowStamp(){ return fmtDateTime(new Date().toISOString()); }
+
+function logHistory(text){
+  store.history.unshift(`${nowStamp()} — ${text}`);
+  if(store.history.length > 30) store.history.length = 30;
+}
+
+// ---------- Day-of checkpoint scaling ----------
+
+function computeDayOfCheckpoints(apptDate){
+  const appt = new Date(apptDate);
+  let dayOf = new Date(appt.getTime() - 5*3600000);
+  const sevenAM = new Date(appt); sevenAM.setHours(7,0,0,0);
+  if(dayOf < sevenAM) dayOf = new Date(sevenAM);
+  let onWay = new Date(appt.getTime() - 2*3600000);
+  const minAfterDayOf = new Date(dayOf.getTime() + 3600000);
+  if(onWay < minAfterDayOf) onWay = minAfterDayOf;
+  const maxBeforeAppt = new Date(appt.getTime() - 20*60000);
+  if(onWay > maxBeforeAppt) onWay = maxBeforeAppt;
+  if(onWay < dayOf) onWay = new Date(dayOf);
+  return { dayOf, onWay };
+}
+
+function buildCheckpointTimes(apptIso){
+  const appt = new Date(apptIso);
+  const dayBefore = new Date(appt); dayBefore.setDate(dayBefore.getDate()-1); dayBefore.setHours(7,0,0,0);
+  const { dayOf, onWay } = computeDayOfCheckpoints(appt);
+  return { day_before: dayBefore, day_of_9am: dayOf, on_the_way: onWay };
+}
+
+// ---------- Global next-checkpoint lookup (across all appointments) ----------
+
+function allDueOrUpcoming(){
+  // Returns [{appt, cp}] for every unanswered, unskipped checkpoint across
+  // every scheduled appointment, sorted soonest first.
+  const items = [];
+  store.appointments.forEach(appt => {
+    if(appt.status !== 'scheduled') return;
+    appt.checkpoints.forEach(cp => {
+      if(cp.answered || cp.skipped || !cp.time) return;
+      items.push({ appt, cp });
+    });
+  });
+  items.sort((a,b) => new Date(a.cp.time) - new Date(b.cp.time));
+  return items;
+}
+
+function nextGlobalDue(){
+  const now = new Date();
+  return allDueOrUpcoming().find(item => new Date(item.cp.time) <= now) || null;
+}
+
+function nextGlobalUpcoming(){
+  return allDueOrUpcoming()[0] || null;
+}
+
+// ---------- Rendering ----------
+
+function render(){
+  renderBoard();
+  renderApptList();
+  renderHistory();
+}
+
+function renderBoard(){
+  const statusEl = document.getElementById('boardStatus');
+  const labelEl = document.getElementById('countdownLabel');
+  const cdEl = document.getElementById('countdown');
+  const gateEl = document.getElementById('boardGate');
+
+  const scheduledCount = store.appointments.filter(a => a.status === 'scheduled').length;
+
+  if(scheduledCount === 0){
+    gateEl.innerHTML = `<span>NO APPOINTMENTS SET</span><span></span>`;
+    statusEl.textContent = 'Nothing scheduled yet.';
+    labelEl.textContent = 'STATUS'; cdEl.textContent = '—'; cdEl.classList.remove('board-done');
+    return;
+  }
+
+  const upcoming = nextGlobalUpcoming();
+  if(!upcoming){
+    gateEl.innerHTML = `<span>${scheduledCount} APPOINTMENT${scheduledCount > 1 ? 'S' : ''}</span><span></span>`;
+    statusEl.textContent = 'All check-ins complete for now.';
+    labelEl.textContent = 'STATUS'; cdEl.textContent = 'READY'; cdEl.classList.add('board-done');
+    return;
+  }
+
+  cdEl.classList.remove('board-done');
+  gateEl.innerHTML = `<span>DR: ${(upcoming.appt.doctor||'').toUpperCase()}</span><span>${(upcoming.appt.location||'').toUpperCase()}</span>`;
+  statusEl.textContent = upcoming.cp.label;
+  labelEl.textContent = 'NEXT CHECK-IN · ' + fmtDateTime(upcoming.cp.time).toUpperCase();
+
+  const now = new Date();
+  const target = new Date(upcoming.cp.time);
+  let diff = Math.max(0, target - now);
+  if(diff <= 0){
+    cdEl.textContent = 'DUE NOW';
+  } else if(diff >= 86400000){
+    const days = Math.floor(diff/86400000), hrs = Math.floor((diff%86400000)/3600000);
+    cdEl.textContent = `${days}d ${hrs}h`;
+  } else {
+    const h = Math.floor(diff/3600000), m = Math.floor((diff%3600000)/60000), s = Math.floor((diff%60000)/1000);
+    cdEl.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
+}
+
+function apptNextLine(appt){
+  const next = appt.checkpoints.find(cp => !cp.answered && !cp.skipped);
+  if(!next) return 'All check-ins complete';
+  return `Next: ${next.label} · ${fmtDateTime(next.time)}`;
+}
+
+function renderApptList(){
+  const el = document.getElementById('apptList');
+  const scheduled = store.appointments.filter(a => a.status === 'scheduled');
+
+  if(scheduled.length === 0){
+    el.innerHTML = `<div class="empty-state">No appointments yet — tap "+ Add appointment" above to start tracking one.</div>`;
+    return;
+  }
+
+  el.innerHTML = scheduled.map(appt => `
+    <div class="appt-card" data-appt-id="${appt.id}">
+      <div class="appt-card-header" data-toggle="${appt.id}">
+        <div>
+          <div class="appt-card-title">${appt.doctor} — ${appt.location}</div>
+          <div class="appt-card-meta">${fmtDateTime(appt.apptDateTime)}</div>
+          <div class="appt-card-next">${apptNextLine(appt)}</div>
+        </div>
+        <div class="appt-card-chevron">${openCardId === appt.id ? '▲' : '▼'}</div>
+      </div>
+      <div class="appt-card-body ${openCardId === appt.id ? 'open' : ''}" id="body-${appt.id}"></div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('[data-toggle]').forEach(header => {
+    header.addEventListener('click', () => {
+      const id = header.dataset.toggle;
+      openCardId = (openCardId === id) ? null : id;
+      render();
+    });
+  });
+
+  if(openCardId){
+    const bodyEl = document.getElementById('body-' + openCardId);
+    if(bodyEl) renderCardBody(bodyEl, findAppt(openCardId));
+  }
+}
+
+function statusDotClass(cp){ if(cp.skipped) return 'dot-skip'; if(!cp.answered) return 'dot-pending'; return cp.response === 'yes' ? 'dot-yes' : 'dot-no'; }
+function statusDotSymbol(cp){ if(cp.skipped) return '–'; if(!cp.answered) return '○'; return cp.response === 'yes' ? '✓' : '✕'; }
+function statusSub(cp){ if(cp.skipped) return 'Skipped'; if(!cp.answered) return fmtDateTime(cp.time); return `Answered ${cp.response.toUpperCase()} · ${fmtDateTime(cp.time)}`; }
+
+function renderCardBody(el, appt){
+  let html = '<div class="tl">';
+  appt.checkpoints.forEach(cp => {
+    html += `<div class="tl-item"><div class="tl-dot ${statusDotClass(cp)}">${statusDotSymbol(cp)}</div><div class="tl-body"><div class="tl-label">${cp.label}</div><div class="tl-sub">${statusSub(cp)}</div></div></div>`;
+  });
+  html += `<div class="tl-item"><div class="tl-dot dot-final">●</div><div class="tl-body"><div class="tl-label">Appointment</div><div class="tl-sub">${fmtDateTime(appt.apptDateTime)}</div></div></div>`;
+  html += '</div>';
+
+  html += `<div class="preview-buttons">${appt.checkpoints.map(cp => `<button class="btn-ghost" data-preview="${cp.id}">${cp.label}</button>`).join('')}</div>`;
+  html += `<div class="appt-card-actions">
+    <button class="btn-ghost" data-edit="1">Edit appointment</button>
+    <button class="link-danger" data-delete="1">Delete</button>
+  </div>`;
+
+  el.innerHTML = html;
+
+  el.querySelectorAll('[data-preview]').forEach(btn => {
+    btn.addEventListener('click', () => openCheckpointModal(appt.id, btn.dataset.preview, true));
+  });
+  el.querySelector('[data-edit]').addEventListener('click', () => openEditModal(appt.id));
+  el.querySelector('[data-delete]').addEventListener('click', () => {
+    logHistory(`Deleted appointment: ${appt.doctor}, ${appt.location}, ${fmtDateTime(appt.apptDateTime)}`);
+    store.appointments = store.appointments.filter(a => a.id !== appt.id);
+    if(openCardId === appt.id) openCardId = null;
+    saveStore(); render();
+  });
+}
+
+function renderHistory(){
+  const block = document.getElementById('historyBlock');
+  const el = document.getElementById('historyList');
+  if(!store.history.length){ block.style.display = 'none'; return; }
+  block.style.display = 'block';
+  el.innerHTML = store.history.slice(0, 10).map(h => `<div class="history-item">${h}</div>`).join('');
+}
+
+// ---------- Add / Edit modal ----------
+
+document.getElementById('addApptBtn').addEventListener('click', () => openEditModal(null));
+
+function openEditModal(apptId){
+  modalOpen = true;
+  document.getElementById('overlay').style.display = 'flex';
+  renderEditForm(apptId);
+}
+
+function renderEditForm(apptId){
+  const appt = apptId ? findAppt(apptId) : null;
+  const modal = document.getElementById('modalContent');
+  const d = appt ? new Date(appt.apptDateTime) : new Date();
+  const dateStr = d.toISOString().slice(0,10);
+  const timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  modal.innerHTML = `
+    <div class="modal-eyebrow">${appt ? 'Edit appointment' : 'New appointment'}</div>
+    <p class="modal-q">Appointment details</p>
+    <input type="text" class="modal-input" id="editDoctor" placeholder="Doctor / who with" value="${appt ? appt.doctor : ''}">
+    <input type="text" class="modal-input" id="editLocation" placeholder="Location" value="${appt ? appt.location : ''}">
+    <input type="date" class="modal-input" id="editDate" value="${dateStr}">
+    <input type="time" class="modal-input" id="editTime" value="${timeStr}">
+    <div class="modal-row">
+      <button class="btn btn-primary" id="editSave" style="flex:1;">Save</button>
+    </div>
+    <p class="modal-note">Check-in times are set automatically around this date and time.</p>
+    <button class="modal-close" id="closeModalBtn">Cancel</button>
+  `;
+  document.getElementById('editSave').onclick = () => saveEditForm(apptId);
+  document.getElementById('closeModalBtn').onclick = closeModal;
+}
+
+function saveEditForm(apptId){
+  const doctor = document.getElementById('editDoctor').value.trim();
+  const location = document.getElementById('editLocation').value.trim();
+  const dateVal = document.getElementById('editDate').value;
+  const timeVal = document.getElementById('editTime').value || '09:00';
+  if(!doctor || !location || !dateVal) return;
+
+  const apptIso = new Date(`${dateVal}T${timeVal}:00+08:00`).toISOString();
+  const times = buildCheckpointTimes(apptIso);
+  const now = new Date();
+  const checkpoints = newCheckpoints().map(cp => ({
+    ...cp,
+    time: times[cp.id].toISOString(),
+    skipped: times[cp.id] <= now
+  }));
+
+  if(apptId){
+    const appt = findAppt(apptId);
+    appt.doctor = doctor; appt.location = location; appt.apptDateTime = apptIso;
+    appt.checkpoints = checkpoints;
+    logHistory(`Edited appointment: ${doctor}, ${location}, ${fmtDateTime(apptIso)}`);
+    openCardId = apptId;
+  } else {
+    const id = newId();
+    store.appointments.push({ id, doctor, location, apptDateTime: apptIso, status: 'scheduled', checkpoints });
+    logHistory(`Added appointment: ${doctor}, ${location}, ${fmtDateTime(apptIso)}`);
+    openCardId = id;
+  }
+
+  saveStore(); render(); closeModal();
+}
+
+// ---------- Question modal ----------
+
+function openCheckpointModal(apptId, cpId, isPreview){
+  const appt = findAppt(apptId);
+  const cp = appt && appt.checkpoints.find(c => c.id === cpId);
+  if(!cp) return;
+  modalOpen = true;
+  document.getElementById('overlay').style.display = 'flex';
+  renderQuestionModal(appt, cp, isPreview);
+}
+
+function closeModal(){
+  modalOpen = false;
+  document.getElementById('overlay').style.display = 'none';
+}
+
+function questionText(appt, cp){
+  if(cp.id === 'day_before') return `Is your appointment confirmed on ${fmtDate(appt.apptDateTime)} at ${fmtTime(appt.apptDateTime)}?`;
+  if(cp.id === 'day_of_9am') return `Your appointment with ${appt.doctor} is at ${fmtTime(appt.apptDateTime)} today. Confirm if going?`;
+  if(cp.id === 'on_the_way') return `Are you on your way to ${appt.doctor} (${fmtTime(appt.apptDateTime)})?`;
+  return cp.label;
+}
+
+function renderQuestionModal(appt, cp, isPreview){
+  const modal = document.getElementById('modalContent');
+  const navBtn = cp.id === 'on_the_way' ? '<button class="btn-ghost" id="navigateBtn" style="width:100%; margin-top:12px;">🧭 Navigate with Waypoint</button>' : '';
+  modal.innerHTML = `
+    <div class="modal-eyebrow">${isPreview ? 'Preview' : 'Check-in due'} · ${appt.doctor}</div>
+    <p class="modal-q">${questionText(appt, cp)}</p>
+    <div class="modal-row">
+      <button class="btn btn-yes" id="ansYes">Yes</button>
+      <button class="btn btn-no" id="ansNo">No</button>
+    </div>
+    ${navBtn}
+    ${isPreview ? '<button class="modal-close" id="closeModalBtn">Cancel preview</button>' : ''}
+  `;
+  document.getElementById('ansYes').onclick = () => handleAnswer(appt, cp, 'yes', isPreview);
+  document.getElementById('ansNo').onclick = () => handleAnswer(appt, cp, 'no', isPreview);
+  if(cp.id === 'on_the_way') document.getElementById('navigateBtn').onclick = () => openWaypointNav(appt);
+  if(isPreview) document.getElementById('closeModalBtn').onclick = closeModal;
+}
+
+function handleAnswer(appt, cp, response, isPreview){
+  if(!isPreview){
+    cp.answered = true; cp.response = response;
+    logHistory(`"${cp.label}" (${appt.doctor}) answered ${response.toUpperCase()}`);
+  }
+  if(cp.id === 'day_before' && response === 'no'){ renderRescheduleAsk(appt, cp, isPreview); return; }
+  if(!isPreview) saveStore();
+  render();
+  if(cp.id === 'on_the_way'){ renderAnsweredNav(appt, cp, response, isPreview); return; }
+  closeModal();
+}
+
+function renderAnsweredNav(appt, cp, response, isPreview){
+  const modal = document.getElementById('modalContent');
+  modal.innerHTML = `
+    <div class="modal-eyebrow">${isPreview ? 'Preview' : 'Noted'}</div>
+    <p class="modal-q">${response === 'yes' ? 'Great — safe travels.' : "Got it, noted."}</p>
+    <button class="btn-ghost" id="navigateBtn" style="width:100%;">🧭 Navigate with Waypoint</button>
+    <button class="modal-close" id="closeModalBtn" style="margin-top:16px;">Close</button>
+  `;
+  document.getElementById('navigateBtn').onclick = () => openWaypointNav(appt);
+  document.getElementById('closeModalBtn').onclick = closeModal;
+}
+
+function renderRescheduleAsk(appt, cp, isPreview){
+  const modal = document.getElementById('modalContent');
+  modal.innerHTML = `
+    <div class="modal-eyebrow">Follow-up · ${appt.doctor}</div>
+    <p class="modal-q">Is there a reschedule date and time?</p>
+    <div class="modal-row">
+      <button class="btn btn-yes" id="rsYes">Yes</button>
+      <button class="btn btn-no" id="rsNo">No</button>
+    </div>
+    ${isPreview ? '<button class="modal-close" id="closeModalBtn">Cancel preview</button>' : ''}
+  `;
+  document.getElementById('rsYes').onclick = () => renderRescheduleForm(appt, isPreview);
+  document.getElementById('rsNo').onclick = () => confirmCancelAppt(appt, isPreview);
+  if(isPreview) document.getElementById('closeModalBtn').onclick = closeModal;
+}
+
+function renderRescheduleForm(appt, isPreview){
+  const modal = document.getElementById('modalContent');
+  const todayStr = new Date().toISOString().slice(0,10);
+  const d = new Date(appt.apptDateTime);
+  const timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  modal.innerHTML = `
+    <div class="modal-eyebrow">Reschedule · ${appt.doctor}</div>
+    <p class="modal-q">New date and time</p>
+    <input type="date" class="modal-input" id="rsDate" min="${todayStr}">
+    <input type="time" class="modal-input" id="rsTime" value="${timeStr}">
+    <div class="modal-row">
+      <button class="btn btn-primary" id="rsSave" style="flex:1;">Save & reschedule</button>
+    </div>
+    <p class="modal-note">This resets this appointment's check-ins around the new date. Any check-in already in the past is skipped automatically.</p>
+    ${isPreview ? '<button class="modal-close" id="closeModalBtn">Cancel preview</button>' : ''}
+  `;
+  document.getElementById('rsSave').onclick = () => saveReschedule(appt, isPreview);
+  if(isPreview) document.getElementById('closeModalBtn').onclick = closeModal;
+}
+
+function saveReschedule(appt, isPreview){
+  const dateVal = document.getElementById('rsDate').value;
+  const timeVal = document.getElementById('rsTime').value || '14:00';
+  if(!dateVal) return;
+  if(isPreview){ closeModal(); return; }
+
+  const newIso = new Date(`${dateVal}T${timeVal}:00+08:00`).toISOString();
+  const times = buildCheckpointTimes(newIso);
+  const now = new Date();
+
+  appt.apptDateTime = newIso;
+  appt.checkpoints = newCheckpoints().map(cp => ({
+    ...cp,
+    time: times[cp.id].toISOString(),
+    skipped: times[cp.id] <= now
+  }));
+
+  logHistory(`Rescheduled ${appt.doctor} to ${fmtDateTime(newIso)}`);
+  saveStore(); render(); closeModal();
+}
+
+function confirmCancelAppt(appt, isPreview){
+  if(isPreview){ closeModal(); return; }
+  logHistory(`No reschedule given — removed appointment: ${appt.doctor}, ${appt.location}`);
+  store.appointments = store.appointments.filter(a => a.id !== appt.id);
+  if(openCardId === appt.id) openCardId = null;
+  saveStore(); render(); closeModal();
+}
+
+// ---------- Waypoint navigation ----------
+
+async function openWaypointNav(appt){
+  const btn = document.getElementById('navigateBtn');
+  const label = appt.location || 'your appointment';
+  const win = window.open('', '_blank');
+  if(btn){ btn.disabled = true; btn.textContent = 'Finding location…'; }
+  const base = 'https://waypoint-production-0307.up.railway.app/';
+  try{
+    const q = encodeURIComponent(label + ', Singapore');
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${q}`);
+    const results = await res.json();
+    let url = base;
+    if(results && results.length){
+      const { lat, lon } = results[0];
+      const params = new URLSearchParams({ dest_lat: lat, dest_lon: lon, dest_label: label });
+      url = `${base}?${params.toString()}`;
+    }
+    if(win) win.location.href = url; else window.open(url, '_blank');
+  }catch(e){
+    console.error('Waypoint geocode failed:', e);
+    if(win) win.location.href = base; else window.open(base, '_blank');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '🧭 Navigate with Waypoint'; }
+  }
+}
+
+// ---------- Ticking + auto-popup ----------
+
+function tick(){
+  if(!store) return;
+  renderBoard();
+  if(!modalOpen){
+    const due = nextGlobalDue();
+    if(due){
+      const key = due.appt.id + ':' + due.cp.id;
+      if(!notified[key]){
+        notified[key] = true;
+        openCheckpointModal(due.appt.id, due.cp.id, false);
+      }
+    }
+  }
+}
+
+loadStore();
+render();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
