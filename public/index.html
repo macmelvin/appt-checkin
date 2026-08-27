@@ -39,6 +39,12 @@
   .board-done{ color:var(--board-green); }
 
   .banner{ margin-top:14px; padding:10px 14px; background:#fff; border:1px solid var(--line); border-radius:8px; font-size:12.5px; color:var(--ink-soft); line-height:1.5; }
+  .gcal-connect{ margin-top:12px; padding:12px 14px; background:#fff; border:1px solid var(--line); border-radius:8px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .gcal-connect-text{ font-size:12.5px; color:var(--ink-soft); flex:1; min-width:180px; }
+  .gcal-connect.connected{ border-color: var(--teal); background: rgba(47,122,107,0.05); }
+  .gcal-connect.connected .gcal-connect-text{ color: var(--teal-deep); font-weight:600; }
+  .sync-badge{ font-size:11px; color: var(--teal-deep); margin-top:6px; }
+  .sync-badge.pending{ color: var(--ink-soft); }
 
   .section-title{ font-family:var(--mono); font-size:11px; letter-spacing:2px; color:var(--ink-soft); text-transform:uppercase; margin:22px 2px 10px; display:flex; justify-content:space-between; align-items:center; }
 
@@ -116,6 +122,7 @@
         a.appendChild(r);
     })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
 </script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 <div class="app">
@@ -131,6 +138,11 @@
   </div>
 
   <div class="banner">This board only checks the time while it's open on your screen. Your phone will also get a calendar alert at each check-in time — open this board then to answer it. Everything is saved on this device.</div>
+
+  <div class="gcal-connect" id="gcalConnect">
+    <div class="gcal-connect-text" id="gcalConnectText">Connect Google Calendar to get real reminders on your phone for every check-in.</div>
+    <button class="btn-add" id="gcalConnectBtn">Connect Google Calendar</button>
+  </div>
 
   <div class="section-title">
     <span>Your appointments</span>
@@ -392,7 +404,11 @@ function renderCardBody(el, appt){
   html += `<div class="appt-card-actions">
     <button class="btn-ghost" data-edit="1">Edit appointment</button>
     <button class="link-danger" data-delete="1">Delete</button>
+    <button class="btn-ghost" data-sync="1">Sync to Calendar</button>
   </div>`;
+  if(appt.calendarSyncStatus === 'synced') html += `<div class="sync-badge">✓ Synced to Google Calendar</div>`;
+  else if(appt.calendarSyncStatus === 'syncing') html += `<div class="sync-badge pending">Syncing…</div>`;
+  else if(appt.calendarSyncStatus === 'failed') html += `<div class="sync-badge pending">Sync failed — tap "Sync to Calendar" to retry</div>`;
 
   el.innerHTML = html;
 
@@ -400,8 +416,10 @@ function renderCardBody(el, appt){
     btn.addEventListener('click', () => openCheckpointModal(appt.id, btn.dataset.preview, true));
   });
   el.querySelector('[data-edit]').addEventListener('click', () => openEditModal(appt.id));
-  el.querySelector('[data-delete]').addEventListener('click', () => {
+  el.querySelector('[data-sync]').addEventListener('click', () => syncApptToCalendar(appt));
+  el.querySelector('[data-delete]').addEventListener('click', async () => {
     logHistory(`Deleted appointment: ${appt.doctor}, ${appt.location}, ${fmtDateTime(appt.apptDateTime)}`);
+    await deleteApptCalendarEvents(appt);
     store.appointments = store.appointments.filter(a => a.id !== appt.id);
     if(openCardId === appt.id) openCardId = null;
     saveStore(); render();
@@ -465,20 +483,25 @@ function saveEditForm(apptId){
     skipped: times[cp.id] <= now
   }));
 
+  let syncTarget;
   if(apptId){
     const appt = findAppt(apptId);
     appt.doctor = doctor; appt.location = location; appt.apptDateTime = apptIso;
     appt.checkpoints = checkpoints;
     logHistory(`Edited appointment: ${doctor}, ${location}, ${fmtDateTime(apptIso)}`);
     openCardId = apptId;
+    syncTarget = appt;
   } else {
     const id = newId();
-    store.appointments.push({ id, doctor, location, apptDateTime: apptIso, status: 'scheduled', checkpoints });
+    const newAppt = { id, doctor, location, apptDateTime: apptIso, status: 'scheduled', checkpoints };
+    store.appointments.push(newAppt);
     logHistory(`Added appointment: ${doctor}, ${location}, ${fmtDateTime(apptIso)}`);
     openCardId = id;
+    syncTarget = newAppt;
   }
 
   saveStore(); render(); closeModal();
+  syncApptToCalendar(syncTarget);
 }
 
 // ---------- Question modal ----------
@@ -602,6 +625,7 @@ function saveReschedule(appt, isPreview){
 
   logHistory(`Rescheduled ${appt.doctor} to ${fmtDateTime(newIso)}`);
   saveStore(); render(); closeModal();
+  syncApptToCalendar(appt);
 }
 
 function confirmCancelAppt(appt, isPreview){
@@ -637,6 +661,156 @@ async function openWaypointNav(appt){
   }finally{
     if(btn){ btn.disabled = false; btn.textContent = '🧭 Navigate with Waypoint'; }
   }
+}
+
+// ---------- Google Calendar integration ----------
+
+const GOOGLE_CLIENT_ID = '102194812417-vk7g7hjh2turor27veunrg2vki482scu.apps.googleusercontent.com';
+const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+
+let gcalTokenClient = null;
+let gcalAccessToken = null;
+
+function gcalUpdateConnectUI(){
+  const el = document.getElementById('gcalConnect');
+  const text = document.getElementById('gcalConnectText');
+  const btn = document.getElementById('gcalConnectBtn');
+  if(!el) return;
+  if(gcalAccessToken && gcalAccessToken.expiresAt > Date.now()){
+    el.classList.add('connected');
+    text.textContent = '✓ Connected — new and edited appointments sync to your Google Calendar automatically.';
+    btn.textContent = 'Reconnect';
+  } else {
+    el.classList.remove('connected');
+    text.textContent = 'Connect Google Calendar to get real reminders on your phone for every check-in.';
+    btn.textContent = 'Connect Google Calendar';
+  }
+}
+
+function gcalEnsureTokenClient(){
+  if(gcalTokenClient) return gcalTokenClient;
+  gcalTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: CALENDAR_SCOPE,
+    callback: '',
+  });
+  return gcalTokenClient;
+}
+
+function gcalRequestAccess(promptConsent){
+  return new Promise((resolve, reject) => {
+    const client = gcalEnsureTokenClient();
+    client.callback = (resp) => {
+      if(resp.error){ reject(resp); return; }
+      gcalAccessToken = { token: resp.access_token, expiresAt: Date.now() + (resp.expires_in * 1000) };
+      gcalUpdateConnectUI();
+      resolve(gcalAccessToken.token);
+    };
+    client.requestAccessToken({ prompt: promptConsent ? 'consent' : '' });
+  });
+}
+
+async function gcalGetValidToken(){
+  if(gcalAccessToken && gcalAccessToken.expiresAt > Date.now() + 60000) return gcalAccessToken.token;
+  return gcalRequestAccess(!gcalAccessToken);
+}
+
+document.getElementById('gcalConnectBtn').addEventListener('click', async () => {
+  try{ await gcalRequestAccess(true); }
+  catch(e){ console.error('Google Calendar connect failed', e); }
+});
+
+async function gcalCreateEvent(payload){
+  const token = await gcalGetValidToken();
+  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if(!res.ok) throw new Error('Calendar create failed: ' + res.status);
+  const data = await res.json();
+  return data.id;
+}
+
+async function gcalUpdateEvent(eventId, payload){
+  const token = await gcalGetValidToken();
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if(!res.ok) throw new Error('Calendar update failed: ' + res.status);
+}
+
+async function gcalDeleteEvent(eventId){
+  try{
+    const token = await gcalGetValidToken();
+    await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  }catch(e){ console.error('Calendar delete failed', e); }
+}
+
+function gcalCheckpointPayload(appt, cp){
+  const start = new Date(cp.time);
+  const end = new Date(start.getTime() + 15 * 60000);
+  return {
+    summary: `🔔 ${cp.label} — ${appt.doctor}`,
+    description: `Checkpoint for your appointment with ${appt.doctor} at ${appt.location}. Open the Appointment Check-in app to answer.`,
+    start: { dateTime: start.toISOString(), timeZone: 'Asia/Singapore' },
+    end: { dateTime: end.toISOString(), timeZone: 'Asia/Singapore' },
+    reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] }
+  };
+}
+
+function gcalApptPayload(appt){
+  const start = new Date(appt.apptDateTime);
+  const end = new Date(start.getTime() + 60 * 60000);
+  return {
+    summary: `${appt.doctor} Appointment`,
+    location: appt.location,
+    start: { dateTime: start.toISOString(), timeZone: 'Asia/Singapore' },
+    end: { dateTime: end.toISOString(), timeZone: 'Asia/Singapore' },
+    reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 60 }, { method: 'popup', minutes: 0 }] }
+  };
+}
+
+async function syncApptToCalendar(appt){
+  if(!gcalAccessToken) return;
+  appt.calendarEventIds = appt.calendarEventIds || {};
+  appt.calendarSyncStatus = 'syncing';
+  render();
+
+  try{
+    for(const cp of appt.checkpoints){
+      if(!cp.time) continue;
+      const payload = gcalCheckpointPayload(appt, cp);
+      if(appt.calendarEventIds[cp.id]){
+        await gcalUpdateEvent(appt.calendarEventIds[cp.id], payload);
+      } else {
+        appt.calendarEventIds[cp.id] = await gcalCreateEvent(payload);
+      }
+    }
+    const apptPayload = gcalApptPayload(appt);
+    if(appt.calendarEventIds.appointment){
+      await gcalUpdateEvent(appt.calendarEventIds.appointment, apptPayload);
+    } else {
+      appt.calendarEventIds.appointment = await gcalCreateEvent(apptPayload);
+    }
+    appt.calendarSyncStatus = 'synced';
+    logHistory(`Synced "${appt.doctor}" to Google Calendar`);
+  }catch(e){
+    console.error('Calendar sync failed', e);
+    appt.calendarSyncStatus = 'failed';
+  }
+  saveStore(); render();
+}
+
+async function deleteApptCalendarEvents(appt){
+  if(!appt.calendarEventIds) return;
+  const ids = Object.values(appt.calendarEventIds);
+  for(const id of ids){ await gcalDeleteEvent(id); }
 }
 
 // ---------- Ticking + auto-popup ----------
