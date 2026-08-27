@@ -365,7 +365,7 @@ function renderApptList(){
       <div class="appt-card-header" data-toggle="${appt.id}">
         <div>
           <div class="appt-card-title">${appt.doctor} — ${appt.location}</div>
-          <div class="appt-card-meta">${fmtDateTime(appt.apptDateTime)}</div>
+          <div class="appt-card-meta">${fmtDateTime(appt.apptDateTime)}${appt.repeat && appt.repeat !== 'none' ? ' · ' + REPEAT_LABELS[appt.repeat] : ''}</div>
           <div class="appt-card-next">${apptNextLine(appt)}</div>
         </div>
         <div class="appt-card-chevron">${openCardId === appt.id ? '▲' : '▼'}</div>
@@ -444,12 +444,18 @@ function openEditModal(apptId){
   renderEditForm(apptId);
 }
 
+const REPEAT_LABELS = { none: "Doesn't repeat", weekly: "Repeats weekly", fortnightly: "Repeats every 2 weeks", monthly: "Repeats monthly" };
+
 function renderEditForm(apptId){
   const appt = apptId ? findAppt(apptId) : null;
   const modal = document.getElementById('modalContent');
   const d = appt ? new Date(appt.apptDateTime) : new Date();
   const dateStr = d.toISOString().slice(0,10);
   const timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  const repeatVal = appt ? (appt.repeat || 'none') : 'none';
+  const repeatOptions = Object.keys(REPEAT_LABELS).map(key =>
+    `<option value="${key}" ${key === repeatVal ? 'selected' : ''}>${REPEAT_LABELS[key]}</option>`
+  ).join('');
   modal.innerHTML = `
     <div class="modal-eyebrow">${appt ? 'Edit appointment' : 'New appointment'}</div>
     <p class="modal-q">Appointment details</p>
@@ -457,10 +463,11 @@ function renderEditForm(apptId){
     <input type="text" class="modal-input" id="editLocation" placeholder="Location" value="${appt ? appt.location : ''}">
     <input type="date" class="modal-input" id="editDate" value="${dateStr}">
     <input type="time" class="modal-input" id="editTime" value="${timeStr}">
+    <select class="modal-input" id="editRepeat">${repeatOptions}</select>
     <div class="modal-row">
       <button class="btn btn-primary" id="editSave" style="flex:1;">Save</button>
     </div>
-    <p class="modal-note">Check-in times are set automatically around this date and time.</p>
+    <p class="modal-note">Check-in times are set automatically around this date and time. If this repeats, the next occurrence is created automatically once this one's date passes.</p>
     <button class="modal-close" id="closeModalBtn">Cancel</button>
   `;
   document.getElementById('editSave').onclick = () => saveEditForm(apptId);
@@ -472,6 +479,7 @@ function saveEditForm(apptId){
   const location = document.getElementById('editLocation').value.trim();
   const dateVal = document.getElementById('editDate').value;
   const timeVal = document.getElementById('editTime').value || '09:00';
+  const repeat = document.getElementById('editRepeat').value;
   if(!doctor || !location || !dateVal) return;
 
   const apptIso = new Date(`${dateVal}T${timeVal}:00+08:00`).toISOString();
@@ -487,13 +495,13 @@ function saveEditForm(apptId){
   if(apptId){
     const appt = findAppt(apptId);
     appt.doctor = doctor; appt.location = location; appt.apptDateTime = apptIso;
-    appt.checkpoints = checkpoints;
+    appt.checkpoints = checkpoints; appt.repeat = repeat; appt.nextSpawned = false;
     logHistory(`Edited appointment: ${doctor}, ${location}, ${fmtDateTime(apptIso)}`);
     openCardId = apptId;
     syncTarget = appt;
   } else {
     const id = newId();
-    const newAppt = { id, doctor, location, apptDateTime: apptIso, status: 'scheduled', checkpoints };
+    const newAppt = { id, doctor, location, apptDateTime: apptIso, status: 'scheduled', checkpoints, repeat, nextSpawned: false };
     store.appointments.push(newAppt);
     logHistory(`Added appointment: ${doctor}, ${location}, ${fmtDateTime(apptIso)}`);
     openCardId = id;
@@ -815,8 +823,49 @@ async function deleteApptCalendarEvents(appt){
 
 // ---------- Ticking + auto-popup ----------
 
+function nextOccurrenceDate(apptIso, repeat){
+  const d = new Date(apptIso);
+  if(repeat === 'weekly') d.setDate(d.getDate() + 7);
+  else if(repeat === 'fortnightly') d.setDate(d.getDate() + 14);
+  else if(repeat === 'monthly'){
+    const originalDay = d.getDate();
+    const targetMonthIndex = d.getMonth() + 1;
+    d.setDate(1); // avoid overflow while changing month (e.g. Jan 31 -> Mar 3)
+    d.setMonth(targetMonthIndex);
+    const daysInTargetMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(originalDay, daysInTargetMonth)); // clamp to Feb 28 instead of overflowing
+  }
+  return d;
+}
+
+function spawnNextOccurrenceIfNeeded(appt){
+  if(!appt.repeat || appt.repeat === 'none') return;
+  if(appt.nextSpawned) return;
+  if(new Date(appt.apptDateTime) > new Date()) return;
+
+  const nextIso = nextOccurrenceDate(appt.apptDateTime, appt.repeat).toISOString();
+  const times = buildCheckpointTimes(nextIso);
+  const now = new Date();
+  const checkpoints = newCheckpoints().map(cp => ({
+    ...cp,
+    time: times[cp.id].toISOString(),
+    skipped: times[cp.id] <= now
+  }));
+  const id = newId();
+  const nextAppt = {
+    id, doctor: appt.doctor, location: appt.location, apptDateTime: nextIso,
+    status: 'scheduled', checkpoints, repeat: appt.repeat, nextSpawned: false
+  };
+  store.appointments.push(nextAppt);
+  appt.nextSpawned = true;
+  logHistory(`Next occurrence created: ${appt.doctor}, ${appt.location}, ${fmtDateTime(nextIso)}`);
+  saveStore();
+  syncApptToCalendar(nextAppt);
+}
+
 function tick(){
   if(!store) return;
+  store.appointments.forEach(a => { if(a.status === 'scheduled') spawnNextOccurrenceIfNeeded(a); });
   renderBoard();
   if(!modalOpen){
     const due = nextGlobalDue();
