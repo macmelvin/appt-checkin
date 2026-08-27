@@ -474,6 +474,23 @@ function renderEditForm(apptId){
   document.getElementById('closeModalBtn').onclick = closeModal;
 }
 
+function buildCheckpointsForAppt(apptIso, repeat){
+  const now = new Date();
+  if(repeat && repeat !== 'none'){
+    const onWay = new Date(new Date(apptIso).getTime() - 2 * 3600000);
+    return [{
+      id: 'on_the_way', label: 'On your way?', time: onWay.toISOString(),
+      answered: false, response: null, skipped: onWay <= now
+    }];
+  }
+  const times = buildCheckpointTimes(apptIso);
+  return newCheckpoints().map(cp => ({
+    ...cp,
+    time: times[cp.id].toISOString(),
+    skipped: times[cp.id] <= now
+  }));
+}
+
 function saveEditForm(apptId){
   const doctor = document.getElementById('editDoctor').value.trim();
   const location = document.getElementById('editLocation').value.trim();
@@ -483,13 +500,7 @@ function saveEditForm(apptId){
   if(!doctor || !location || !dateVal) return;
 
   const apptIso = new Date(`${dateVal}T${timeVal}:00+08:00`).toISOString();
-  const times = buildCheckpointTimes(apptIso);
-  const now = new Date();
-  const checkpoints = newCheckpoints().map(cp => ({
-    ...cp,
-    time: times[cp.id].toISOString(),
-    skipped: times[cp.id] <= now
-  }));
+  const checkpoints = buildCheckpointsForAppt(apptIso, repeat);
 
   let syncTarget;
   if(apptId){
@@ -844,13 +855,7 @@ function spawnNextOccurrenceIfNeeded(appt){
   if(new Date(appt.apptDateTime) > new Date()) return;
 
   const nextIso = nextOccurrenceDate(appt.apptDateTime, appt.repeat).toISOString();
-  const times = buildCheckpointTimes(nextIso);
-  const now = new Date();
-  const checkpoints = newCheckpoints().map(cp => ({
-    ...cp,
-    time: times[cp.id].toISOString(),
-    skipped: times[cp.id] <= now
-  }));
+  const checkpoints = buildCheckpointsForAppt(nextIso, appt.repeat);
   const id = newId();
   const nextAppt = {
     id, doctor: appt.doctor, location: appt.location, apptDateTime: nextIso,
