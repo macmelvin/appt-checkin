@@ -722,10 +722,26 @@ function gcalRequestAccess(promptConsent){
     client.callback = (resp) => {
       if(resp.error){ reject(resp); return; }
       gcalAccessToken = { token: resp.access_token, expiresAt: Date.now() + (resp.expires_in * 1000) };
+      try{ localStorage.setItem('gcal_ever_connected', '1'); }catch(e){}
       gcalUpdateConnectUI();
       resolve(gcalAccessToken.token);
     };
     client.requestAccessToken({ prompt: promptConsent ? 'consent' : '' });
+  });
+}
+
+// On page load, if this browser has connected before, try to silently
+// re-establish access without showing any prompt — this is what makes the
+// connection feel persistent across visits instead of expiring every time
+// the page reloads. Falls back to the visible "Connect" button if Google
+// can't verify silently (e.g. signed out of Google, or access was revoked).
+function gcalTrySilentReconnect(){
+  let everConnected = false;
+  try{ everConnected = localStorage.getItem('gcal_ever_connected') === '1'; }catch(e){}
+  if(!everConnected) return;
+  gcalRequestAccess(false).catch(() => {
+    // Silent attempt failed — leave the UI in its normal "not connected"
+    // state; the person can just tap Connect as before.
   });
 }
 
@@ -887,6 +903,7 @@ function tick(){
 loadStore();
 render();
 setInterval(tick, 1000);
+setTimeout(gcalTrySilentReconnect, 500);
 </script>
 </body>
 </html>
