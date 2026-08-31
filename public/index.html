@@ -685,7 +685,7 @@ async function openWaypointNav(appt){
 // ---------- Google Calendar integration ----------
 
 const GOOGLE_CLIENT_ID = '102194812417-vk7g7hjh2turor27veunrg2vki482scu.apps.googleusercontent.com';
-const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events email';
 
 let gcalTokenClient = null;
 let gcalAccessToken = null;
@@ -716,6 +716,21 @@ function gcalEnsureTokenClient(){
   return gcalTokenClient;
 }
 
+function gcalGetStoredHint(){
+  try{ return localStorage.getItem('gcal_hint_email') || undefined; }catch(e){ return undefined; }
+}
+
+async function gcalRememberAccountEmail(token){
+  try{
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if(!res.ok) return;
+    const info = await res.json();
+    if(info.email) localStorage.setItem('gcal_hint_email', info.email);
+  }catch(e){ console.error('Could not fetch account email for hinting', e); }
+}
+
 function gcalRequestAccess(promptConsent){
   return new Promise((resolve, reject) => {
     const client = gcalEnsureTokenClient();
@@ -724,9 +739,10 @@ function gcalRequestAccess(promptConsent){
       gcalAccessToken = { token: resp.access_token, expiresAt: Date.now() + (resp.expires_in * 1000) };
       try{ localStorage.setItem('gcal_ever_connected', '1'); }catch(e){}
       gcalUpdateConnectUI();
+      gcalRememberAccountEmail(gcalAccessToken.token);
       resolve(gcalAccessToken.token);
     };
-    client.requestAccessToken({ prompt: promptConsent ? 'consent' : '' });
+    client.requestAccessToken({ prompt: promptConsent ? 'consent' : '', hint: gcalGetStoredHint() });
   });
 }
 
